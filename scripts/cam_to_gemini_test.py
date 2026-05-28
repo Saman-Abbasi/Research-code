@@ -6,34 +6,43 @@ import os
 import threading
 
 # ----------------------------
-# Load API key from .env file
+# Load API key
 # ----------------------------
 load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Gemini model selection
 model = "gemini-2.5-flash"
 
-# ----------------------------
-# Send request to Gemini (runs in background thread)
-# ----------------------------
-def run_gemini(image):
-    response = client.models.generate_content(
-        model=model,
-        contents=[
-            "Give only navigation-relevant hazards, obstacles, and actionable spatial info.",
-            image
-        ]
-    )
-    print("\n--- GEMINI OUTPUT ---")
-    print(response.text)
+# Prevent multiple overlapping Gemini calls
+inference_running = False
 
 # ----------------------------
-# Start webcam
+# Gemini call (background thread)
+# ----------------------------
+def run_gemini(image):
+    global inference_running
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                "Give only navigation-relevant hazards, obstacles, and actionable spatial info.",
+                image
+            ]
+        )
+        print("\n--- GEMINI OUTPUT ---")
+        print(response.text)
+
+    finally:
+        inference_running = False
+
+
+# ----------------------------
+# Camera
 # ----------------------------
 cap = cv2.VideoCapture(0)
 
-print("Press SPACE to capture frame, Q to quit")
+print("Press SPACE to capture, Q to quit")
 
 while True:
     ret, frame = cap.read()
@@ -45,9 +54,10 @@ while True:
     key = cv2.waitKey(1) & 0xFF
 
     # ----------------------------
-    # SPACE BAR: capture + send to Gemini (non-blocking)
+    # SPACE (single trigger only)
     # ----------------------------
-    if key == 32:
+    if key == 32 and not inference_running:
+        inference_running = True
 
         path = "data/frame.jpg"
         cv2.imwrite(path, frame)
@@ -57,15 +67,13 @@ while True:
         image.save("data/temp.jpg", format="JPEG", quality=40)
         image = Image.open("data/temp.jpg")
 
-        # run Gemini in background thread (IMPORTANT)
-        threading.Thread(target=run_gemini, args=(image,)).start()
+        threading.Thread(target=run_gemini, args=(image,), daemon=True).start()
 
     # ----------------------------
-    # Q key: exit loop
+    # EXIT
     # ----------------------------
     if key == ord('q'):
         break
 
-# Cleanup
 cap.release()
 cv2.destroyAllWindows()
