@@ -38,7 +38,10 @@ while True:
     # ----------------------------
     # Manual trigger
     # ----------------------------
-    manual_trigger = (key == 32)
+    manual_trigger = False
+
+    if key == 32:
+        manual_trigger = True
 
     # ----------------------------
     # Uncertainty trigger
