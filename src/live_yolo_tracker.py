@@ -9,9 +9,8 @@ from agent_core import AgentCore
 from depth_model import DepthEstimator
 
 
-# -------------------- Stabilization --------------------
 class TemporalController:
-    def __init__(self, window_size=7):
+    def __init__(self, window_size=5):
         self.history = deque(maxlen=window_size)
 
     def update(self, action):
@@ -27,7 +26,10 @@ class SafetyPolicyEngine:
     def decide(self, left_risk, center_risk, right_risk):
 
         if center_risk > self.stop_threshold:
-            return ("TURN LEFT" if left_risk < right_risk else "TURN RIGHT"), True
+            if left_risk < right_risk:
+                return "TURN LEFT", True
+            else:
+                return "TURN RIGHT", True
 
         if center_risk > self.slow_threshold:
             return "SLOW", True
@@ -35,7 +37,7 @@ class SafetyPolicyEngine:
         return "FORWARD CLEAR", False
 
 
-# -------------------- Setup --------------------
+# -------------------- Models --------------------
 model = YOLO("yolov8n.pt")
 
 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -47,24 +49,15 @@ depth_model = DepthEstimator()
 temporal = TemporalController()
 policy = SafetyPolicyEngine()
 
-
 # -------------------- Performance controls --------------------
-FRAME_SKIP = 2
-DEPTH_SKIP = 12
-CAM_WIDTH, CAM_HEIGHT = 416, 320
+FRAME_SKIP = 3
+DEPTH_SKIP = 15
 
 frame_count = 0
-
-cached_objects = {}
 cached_depth = None
+cached_objects = {}
 
-# FPS smoothing
-fps_hist = deque(maxlen=30)
 prev_time = time.time()
-
-# rendering buffer (prevents tearing/jitter)
-render_frame = None
-
 
 # -------------------- Main Loop --------------------
 while True:
@@ -73,10 +66,10 @@ while True:
     if not ret:
         break
 
-    frame = cv2.resize(frame, (CAM_WIDTH, CAM_HEIGHT))
+    frame = cv2.resize(frame, (416, 320))
     frame_count += 1
 
-    # -------------------- YOLO (throttled) --------------------
+    # -------------------- YOLO (skipped frames) --------------------
     if frame_count % FRAME_SKIP == 0:
 
         results = model(frame, verbose=False)
@@ -101,29 +94,26 @@ while True:
 
     objects = cached_objects
 
-    # -------------------- Agent memory --------------------
+    # -------------------- Agent update --------------------
     agent.update(objects)
 
-    # -------------------- Depth (slow loop) --------------------
+    # -------------------- Depth (skipped heavy inference) --------------------
+    small_frame = cv2.resize(frame, (160, 120))
+
     if frame_count % DEPTH_SKIP == 0:
-        try:
-            small = cv2.resize(frame, (256, 192))
-            cached_depth = depth_model.predict(small)
-        except:
-            pass
+        cached_depth = depth_model.predict(small_frame)
 
     depth = cached_depth
 
     if depth is None:
-        render_frame = frame.copy()
-        cv2.putText(render_frame, "INITIALIZING DEPTH...", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        cv2.imshow("Agent", render_frame)
+        cv2.putText(frame, "INITIALIZING...", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.imshow("Agent", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
         continue
 
-    # -------------------- Risk zones --------------------
+    # -------------------- Zone risk --------------------
     h, w = depth.shape
 
     left = depth[:, :w // 3]
@@ -140,18 +130,18 @@ while True:
     center_risk /= total
     right_risk /= total
 
-    # -------------------- YOLO boost --------------------
+    # -------------------- YOLO risk boost --------------------
     for obj in objects.values():
 
         x1, y1, x2, y2 = obj["bbox"]
 
         area = (x2 - x1) * (y2 - y1)
-        frame_area = CAM_WIDTH * CAM_HEIGHT
+        frame_area = frame.shape[0] * frame.shape[1]
 
         ratio = area / frame_area
-        cx = (x1 + x2) / 2
+        obj_center_x = (x1 + x2) / 2
 
-        if ratio > 0.10 and CAM_WIDTH * 0.33 < cx < CAM_WIDTH * 0.66:
+        if ratio > 0.10 and frame.shape[1] * 0.33 < obj_center_x < frame.shape[1] * 0.66:
             center_risk += 0.25
 
     center_risk = min(center_risk, 1.0)
@@ -163,61 +153,51 @@ while True:
 
     action = temporal.update(raw_action)
 
-    # -------------------- FPS (smoothed) --------------------
-    now = time.time()
-    fps = 1.0 / (now - prev_time)
-    prev_time = now
+    # -------------------- FPS --------------------
+    curr_time = time.time()
+    fps = 1 / (curr_time - prev_time)
+    prev_time = curr_time
 
-    fps_hist.append(fps)
-    avg_fps = sum(fps_hist) / len(fps_hist)
+    cv2.putText(frame, f"FPS: {int(fps)}", (10, 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-    # -------------------- Render --------------------
-    render_frame = frame.copy()
-
-    # draw objects
+    # -------------------- Draw boxes --------------------
     for obj_id, obj in objects.items():
 
         x1, y1, x2, y2 = obj["bbox"]
 
-        cv2.rectangle(render_frame,
+        cv2.rectangle(frame,
                       (int(x1), int(y1)),
                       (int(x2), int(y2)),
                       (0, 255, 0), 2)
 
-        cv2.putText(render_frame,
-                    f"{obj_id}:{obj['label']}",
-                    (int(x1), int(y1) - 5),
+        cv2.putText(frame,
+                    f"{obj_id} {obj['label']}",
+                    (int(x1), int(y1) - 8),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.4, (0, 255, 0), 1)
+                    0.5, (0, 255, 0), 1)
 
-    # UI overlay
-    cv2.putText(render_frame,
-                f"FPS: {avg_fps:.1f}",
-                (10, 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 0), 2)
-
-    cv2.putText(render_frame,
+    # -------------------- UI --------------------
+    cv2.putText(frame,
                 f"ACTION: {action}",
-                (10, 300),
+                (10, 280),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.7,
                 (0, 0, 255) if collision else (0, 255, 0),
                 2)
 
-    cv2.putText(render_frame,
+    cv2.putText(frame,
                 f"L:{left_risk:.2f} C:{center_risk:.2f} R:{right_risk:.2f}",
-                (10, 280),
+                (10, 300),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (255, 255, 255), 1)
+                (255, 255, 255),
+                1)
 
-    cv2.imshow("Agent", render_frame)
+    cv2.imshow("Agent", frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
-
 
 cap.release()
 cv2.destroyAllWindows()

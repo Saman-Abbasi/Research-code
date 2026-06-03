@@ -1,18 +1,13 @@
 import time
 import numpy as np
 
+
 class IdentityManager:
     def __init__(self, max_lost_time=3.0):
-        # Stores active identities
+
         self.objects = {}
-
-        # Stores last seen time per global ID
         self.last_seen = {}
-
-        # Simple counter for new IDs
         self.next_id = 0
-
-        # How long we keep trying to reconnect an object
         self.max_lost_time = max_lost_time
 
     def _create_id(self):
@@ -29,8 +24,7 @@ class IdentityManager:
 
     def update(self, detections):
         """
-        detections = list of:
-        {
+        detections: list of {
             "label": str,
             "bbox": [x1,y1,x2,y2]
         }
@@ -47,7 +41,6 @@ class IdentityManager:
             best_id = None
             best_score = float("inf")
 
-            # Try to match with existing objects
             for obj_id, obj in self.objects.items():
                 if obj["label"] != label:
                     continue
@@ -58,14 +51,12 @@ class IdentityManager:
                     best_score = dist
                     best_id = obj_id
 
-            # If match found → reuse ID
             if best_id is not None:
                 self.objects[best_id]["center"] = center
                 self.objects[best_id]["bbox"] = bbox
                 self.last_seen[best_id] = now
                 updated_ids.add(best_id)
 
-            # If no match → create new identity
             else:
                 new_id = self._create_id()
                 self.objects[new_id] = {
@@ -76,8 +67,9 @@ class IdentityManager:
                 self.last_seen[new_id] = now
                 updated_ids.add(new_id)
 
-        # Cleanup old objects (forgotten ones)
+        # cleanup old objects
         to_delete = []
+
         for obj_id, t in self.last_seen.items():
             if now - t > self.max_lost_time:
                 to_delete.append(obj_id)
@@ -86,4 +78,5 @@ class IdentityManager:
             self.objects.pop(obj_id, None)
             self.last_seen.pop(obj_id, None)
 
+        # ✅ CRITICAL FIX: ALWAYS RETURN DICT
         return self.objects
