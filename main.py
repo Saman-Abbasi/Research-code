@@ -31,7 +31,7 @@ last_spoken = None
 last_speech_time = 0
 
 
-def _play_audio(file_path):
+def _play_audio(file_path, duration_secs=4):
     abs_path = os.path.abspath(file_path)
     if platform.system() == "Windows":
         ps_script = (
@@ -39,7 +39,7 @@ def _play_audio(file_path):
             f"$mp = New-Object System.Windows.Media.MediaPlayer; "
             f"$mp.Open([System.Uri]'{abs_path}'); "
             f"$mp.Play(); "
-            f"Start-Sleep -Seconds 4"
+            f"Start-Sleep -Seconds {duration_secs}"
         )
         subprocess.run(
             ['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script],
@@ -56,7 +56,10 @@ def _speak_async(text):
             path = f.name
         communicate = edge_tts.Communicate(text, VOICE)
         await communicate.save(path)
-        _play_audio(path)
+        # Dynamic duration: edge_tts speaks ~2.5 words/sec, +2s buffer
+        word_count    = len(text.split())
+        duration_secs = max(4, int(word_count / 2.5) + 2)
+        _play_audio(path, duration_secs)
         os.remove(path)
     asyncio.run(run())
 
@@ -146,6 +149,16 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
 
+    # -------------------- VLM Pause --------------------
+    # While VLM is running: freeze YOLO, show overlay, no print spam
+    if vlm_agent.vlm_running:
+        cv2.putText(frame, "VLM ACTIVE - ANALYZING SCENE...", (10, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
+        cv2.imshow("Agent", frame)
+        if key == ord("q"):
+            break
+        continue
+
     # -------------------- YOLO --------------------
     if frame_count % FRAME_SKIP == 0:
 
@@ -184,9 +197,10 @@ while True:
     # -------------------- Zone risk --------------------
     h, w = depth.shape
 
-    left   = depth[:, :w // 3]
-    center = depth[:, w // 3:2 * w // 3]
-    right  = depth[:, 2 * w // 3:]
+    # Center zone is 50% of frame width (25%→75%) to reduce false L/R triggers
+    left   = depth[:, :w // 4]
+    center = depth[:, w // 4:3 * w // 4]
+    right  = depth[:, 3 * w // 4:]
 
     left_risk   = np.mean(left)
     center_risk = np.mean(center)
@@ -205,7 +219,7 @@ while True:
         ratio            = area / frame_area
         obj_center_x     = (x1 + x2) / 2
 
-        if ratio > 0.10 and frame.shape[1] * 0.33 < obj_center_x < frame.shape[1] * 0.66:
+        if ratio > 0.10 and frame.shape[1] * 0.25 < obj_center_x < frame.shape[1] * 0.75:
             center_risk += 0.25
 
     center_risk = min(center_risk, 1.0)
@@ -245,10 +259,6 @@ while True:
     # -------------------- Draw --------------------
     cv2.putText(frame, f"FPS: {int(fps)}", (10, 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-
-    if vlm_agent.vlm_running:
-        cv2.putText(frame, "VLM ACTIVE", (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
 
     for obj_id, obj in objects.items():
         x1, y1, x2, y2 = obj["bbox"]
