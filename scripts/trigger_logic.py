@@ -29,7 +29,7 @@ def is_uncertain(frame):
 
     too_dark   = mean_brightness < 40
     too_bright = mean_brightness > 220
-    too_blurry = blur_score < 60
+    too_blurry = blur_score < 30
 
     currently_uncertain = too_dark or too_bright or too_blurry
 
