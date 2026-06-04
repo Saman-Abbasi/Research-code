@@ -114,8 +114,7 @@ class SafetyPolicyEngine:
 # -------------------- Models --------------------
 
 model       = YOLO("yolov8n.pt")
-cap         = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if platform.system() == "Windows" else cv2.VideoCapture(0)
 identity    = IdentityManager()
 agent       = AgentCore()
 depth_model = DepthEstimator()
@@ -241,8 +240,8 @@ while True:
     # -------------------- Speech --------------------
     # YOLO directional cues are suppressed while VLM is active
     # VLM always takes the speaker; YOLO resumes after VLM finishes
-    if not vlm_agent.vlm_running:
-        speak(action)
+    
+    speak(action)
 
     # -------------------- VLM Trigger --------------------
     manual_trigger      = (key == 32)
