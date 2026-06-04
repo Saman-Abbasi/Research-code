@@ -1,13 +1,59 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
-import time
-from collections import deque
 
 from identity_manager import IdentityManager
 from agent_core import AgentCore
 from depth_model import DepthEstimator
 
+import edge_tts
+import asyncio
+import threading
+import tempfile
+import os
+import subprocess
+import platform
+import time
+from collections import deque
+
+VOICE = "en-US-AriaNeural"
+last_spoken = None
+last_speech_time = 0
+
+def _play_audio(file_path):
+    abs_path = os.path.abspath(file_path)
+    if platform.system() == "Windows":
+        ps_script = (
+            f"Add-Type -AssemblyName presentationCore; "
+            f"$mp = New-Object System.Windows.Media.MediaPlayer; "
+            f"$mp.Open([System.Uri]'{abs_path}'); "
+            f"$mp.Play(); "
+            f"Start-Sleep -Seconds 4"
+        )
+        subprocess.run(['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script], check=True)
+    else:
+        # Raspberry Pi - requires: sudo apt install mpg123
+        subprocess.run(['mpg123', '-q', abs_path], check=True)
+
+def _speak_async(text):
+    async def run():
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+            path = f.name
+        communicate = edge_tts.Communicate(text, VOICE)
+        await communicate.save(path)
+        print("AUDIO FILE CREATED:", path)
+        _play_audio(path)
+        os.remove(path)
+    asyncio.run(run())
+
+def speak(text):
+    global last_spoken, last_speech_time
+    now = time.time()
+    if text == last_spoken and now - last_speech_time < 5:
+        return
+    last_spoken = text
+    last_speech_time = now
+    threading.Thread(target=_speak_async, args=(text,), daemon=True).start()
 
 class TemporalController:
     def __init__(self, window_size=5):
@@ -20,22 +66,31 @@ class TemporalController:
 
 class SafetyPolicyEngine:
     def __init__(self):
-        self.stop_threshold = 0.58
-        self.slow_threshold = 0.45
+        self.stop_threshold = 0.75
+        self.slow_threshold = 0.55
+        self.max_area_stop = 0.88   # raised from 0.75
 
-    def decide(self, left_risk, center_risk, right_risk):
+    def decide(self, left_risk, center_risk, right_risk, max_area=None):
+
+        # STOP only if object is nearly full-frame
+        if max_area is not None and max_area > self.max_area_stop:
+            return "STOP", True
 
         if center_risk > self.stop_threshold:
-            if left_risk < right_risk:
+            # Turn toward whichever side has more clearance (larger margin = more confident)
+            margin = abs(left_risk - right_risk)
+            if margin < 0.05:
+                # Risks nearly equal — pick left by default
+                return "TURN LEFT", True
+            elif left_risk < right_risk:
                 return "TURN LEFT", True
             else:
                 return "TURN RIGHT", True
 
         if center_risk > self.slow_threshold:
-            return "SLOW", True
+            return "SLOW", False
 
         return "FORWARD CLEAR", False
-
 
 # -------------------- Models --------------------
 model = YOLO("yolov8n.pt")
@@ -147,11 +202,27 @@ while True:
     center_risk = min(center_risk, 1.0)
 
     # -------------------- Policy --------------------
+    max_area = max([0] + [((obj["bbox"][2]-obj["bbox"][0]) * (obj["bbox"][3]-obj["bbox"][1])) 
+                      / (frame.shape[0]*frame.shape[1]) 
+                      for obj in objects.values()])
+
+    print("MAX AREA:", max_area)
+
     raw_action, collision = policy.decide(
-        left_risk, center_risk, right_risk
+        left_risk, center_risk, right_risk, max_area
     )
 
     action = temporal.update(raw_action)
+    
+
+    print("ACTION:", action)
+    print(
+    f"L={left_risk:.2f} "
+    f"C={center_risk:.2f} "
+    f"R={right_risk:.2f}"
+    
+    )
+    speak(action)
 
     # -------------------- FPS --------------------
     curr_time = time.time()
