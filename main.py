@@ -240,7 +240,6 @@ while True:
     # -------------------- Speech --------------------
     # YOLO directional cues are suppressed while VLM is active
     # VLM always takes the speaker; YOLO resumes after VLM finishes
-    
     speak(action)
 
     # -------------------- VLM Trigger --------------------
@@ -248,7 +247,17 @@ while True:
     uncertainty_trigger = is_uncertain(frame)
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
-        vlm_agent.trigger_vlm(frame, on_complete=speak)
+
+        # Build zone context string from current YOLO + depth data
+        detected_labels = list({obj["label"] for obj in objects.values()})
+        zone_context = (
+            f"Left zone risk: {left_risk:.2f}, "
+            f"Center zone risk: {center_risk:.2f}, "
+            f"Right zone risk: {right_risk:.2f}\n"
+            f"Detected objects: {', '.join(detected_labels) if detected_labels else 'none'}"
+        )
+
+        vlm_agent.trigger_vlm(frame, zone_context=zone_context, on_complete=speak)
 
     # -------------------- FPS --------------------
     curr_time = time.time()

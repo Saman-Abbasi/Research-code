@@ -22,33 +22,43 @@ def encode_image(frame):
     return base64.b64encode(buffer).decode("utf-8")
 
 
-def run_vlm_ollama(
-    frame,
-    prompt="""
-You are a wearable navigation assistant.
+def build_prompt(zone_context=""):
+    """
+    Builds navigation-tuned prompt, optionally injecting
+    YOLO zone risk and detected object data.
+    """
+    sensor_block = ""
+    if zone_context:
+        sensor_block = f"""
+YOLO Sensor Data (use this to prioritize hazards):
+{zone_context}
+"""
 
+    return f"""You are an assistive navigation AI for a visually impaired user wearing smart glasses.
+{sensor_block}
 Analyze the image and respond in exactly this format:
 
-Scene: <short description>
+Hazards: <specific hazards and which side they are on, e.g. "chair on left, stairs ahead">
 
-Hazards: <obstacles, trip hazards, walls, furniture, cables, people, stairs, or none>
+Action: <one short directional instruction, e.g. "Move right", "Stop, stairs ahead", "Path is clear, move forward">
 
-Guidance: <single navigation instruction>
+Keep each field to one sentence. Be direct and specific."""
 
-Keep each field at most 3 sentences.
-"""
-):
+
+def run_vlm_ollama(frame, zone_context=""):
     """
-    Send image to local Ollama LLaVA model
+    Send image to local Ollama LLaVA 3B model
     """
     img_b64 = encode_image(frame)
     if img_b64 is None:
         return "Image encoding failed."
 
+    prompt = build_prompt(zone_context)
+
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "llava",
+            "model": "moondream",
             "prompt": prompt,
             "images": [img_b64],
             "stream": False
@@ -59,7 +69,7 @@ Keep each field at most 3 sentences.
     return response.json()["response"]
 
 
-def _worker(frame, on_complete=None):
+def _worker(frame, zone_context="", on_complete=None):
     """
     Background inference thread.
     Calls on_complete(result) to pipe VLM output to speak().
@@ -69,7 +79,7 @@ def _worker(frame, on_complete=None):
     global vlm_running
 
     try:
-        result = run_vlm_ollama(frame)
+        result = run_vlm_ollama(frame, zone_context)
 
         print("\n========== VLM ==========")
         print(result)
@@ -92,9 +102,10 @@ def _worker(frame, on_complete=None):
         vlm_running = False
 
 
-def trigger_vlm(frame, on_complete=None):
+def trigger_vlm(frame, zone_context="", on_complete=None):
     """
     Start VLM if not already running.
+    zone_context: string summary of YOLO risk zones + detected objects
     on_complete: callable that receives the VLM result string (e.g. speak)
     """
     global vlm_running
@@ -106,6 +117,6 @@ def trigger_vlm(frame, on_complete=None):
 
     threading.Thread(
         target=_worker,
-        args=(frame.copy(), on_complete),
+        args=(frame.copy(), zone_context, on_complete),
         daemon=True
     ).start()
