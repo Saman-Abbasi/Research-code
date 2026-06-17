@@ -22,32 +22,36 @@ def encode_image(frame):
     return base64.b64encode(buffer).decode("utf-8")
 
 
-def build_prompt(zone_context=""):
-    """
+"""
     Builds navigation-tuned prompt, optionally injecting
     YOLO zone risk and detected object data.
     """
-    sensor_block = ""
-    if zone_context:
-        sensor_block = f"""
-YOLO Sensor Data (use this to prioritize hazards):
-{zone_context}
-"""
 
-    return f"""You are an assistive navigation AI for a visually impaired user wearing smart glasses.
-{sensor_block}
-Analyze the image and respond in exactly this format:
+def build_prompt(zone_context=""):
+        sensor_block = ""
+        if zone_context:
+            sensor_block = f"""
+    YOLO Sensor Data:
+    {zone_context}
+    """
 
-Hazards: <specific hazards and which side they are on, e.g. "chair on left, stairs ahead">
+        return f"""You are a navigation assistant speaking directly to a blind person wearing smart glasses. Never reference "the image" or "the frame". Describe the real world as if you can see it.
+    {sensor_block}
+    Analyze the scene and respond in exactly this format:
 
-Action: <one short directional instruction, e.g. "Move right", "Stop, stairs ahead", "Path is clear, move forward">
+    Hazards: <what hazards are present and exactly where they are, e.g. "chair on the left side", "person directly ahead", "stairs to the right">
 
-Keep each field to one sentence. Be direct and specific."""
+    Action: <one clear spoken instruction the person should follow immediately, e.g. "Turn left to avoid the person ahead", "Stop, there are stairs directly in front of you", "Path is clear, move forward slowly">
 
+    Be specific about location. Never say "the image shows" or "I can see". Speak as if guiding someone in real time. 
+    
+    CRITICAL: Always direct the person AWAY from hazards. If a hazard is on the left, turn right. If a hazard is on the right, turn left. If ahead, stop or turn to the side with lower risk."""
+        
+        
 
 def run_vlm_ollama(frame, zone_context=""):
     """
-    Send image to local Ollama LLaVA 3B model
+    Send image to local Ollama LLaVA 7B model
     """
     img_b64 = encode_image(frame)
     if img_b64 is None:
@@ -58,7 +62,7 @@ def run_vlm_ollama(frame, zone_context=""):
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "moondream",
+            "model": "llava",
             "prompt": prompt,
             "images": [img_b64],
             "stream": False

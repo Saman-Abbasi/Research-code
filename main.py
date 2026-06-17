@@ -250,11 +250,18 @@ while True:
 
         # Build zone context string from current YOLO + depth data
         detected_labels = list({obj["label"] for obj in objects.values()})
+        
+        def risk_level(r):
+            if r > 0.6: return "high"
+            if r > 0.35: return "moderate"
+            return "low"
+
         zone_context = (
-            f"Left zone risk: {left_risk:.2f}, "
-            f"Center zone risk: {center_risk:.2f}, "
-            f"Right zone risk: {right_risk:.2f}\n"
-            f"Detected objects: {', '.join(detected_labels) if detected_labels else 'none'}"
+            f"Left side: {risk_level(left_risk)} risk. "
+            f"Center: {risk_level(center_risk)} risk. "
+            f"Right side: {risk_level(right_risk)} risk. "
+            f"Detected objects: {', '.join(detected_labels) if detected_labels else 'none'}."
+            f"Current navigation decision: {action}."
         )
 
         vlm_agent.trigger_vlm(frame, zone_context=zone_context, on_complete=speak)
@@ -287,4 +294,4 @@ while True:
         break
 
 cap.release()
-cv2.destroyAllWindows()
+cv2.destroyAllWindows() 
