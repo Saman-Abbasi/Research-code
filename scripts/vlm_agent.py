@@ -22,32 +22,30 @@ def encode_image(frame):
     return base64.b64encode(buffer).decode("utf-8")
 
 
-"""
-    Builds navigation-tuned prompt, optionally injecting
-    YOLO zone risk and detected object data.
-    """
-
 def build_prompt(zone_context=""):
-        sensor_block = ""
-        if zone_context:
-            sensor_block = f"""
-    YOLO Sensor Data:
-    {zone_context}
     """
+    Builds navigation-tuned prompt, optionally injecting fused risk
+    (ToF distance + weighted YOLO detections) and detected object data.
+    """
+    sensor_block = ""
+    if zone_context:
+        sensor_block = f"""
+Risk & detection context:
+{zone_context}
+"""
 
-        return f"""You are a navigation assistant speaking directly to a blind person wearing smart glasses. Never reference "the image" or "the frame". Describe the real world as if you can see it.
-    {sensor_block}
-    Analyze the scene and respond in exactly this format:
+    return f"""You are a navigation assistant speaking directly to a blind person wearing smart glasses. Never reference "the image" or "the frame". Describe the real world as if you can see it.
+{sensor_block}
+Analyze the scene and respond in exactly this format:
 
-    Hazards: <what hazards are present and exactly where they are, e.g. "chair on the left side", "person directly ahead", "stairs to the right">
+Hazards: <what hazards are present and exactly where they are, e.g. "chair on the left side", "person directly ahead", "stairs to the right">
 
-    Action: <one clear spoken instruction the person should follow immediately, e.g. "Turn left to avoid the person ahead", "Stop, there are stairs directly in front of you", "Path is clear, move forward slowly">
+Action: <one clear spoken instruction the person should follow immediately, e.g. "Turn left to avoid the person ahead", "Stop, there are stairs directly in front of you", "Path is clear, move forward slowly">
 
-    Be specific about location. Never say "the image shows" or "I can see". Speak as if guiding someone in real time. 
-    
-    CRITICAL: Always direct the person AWAY from hazards. If a hazard is on the left, turn right. If a hazard is on the right, turn left. If ahead, stop or turn to the side with lower risk."""
-        
-        
+Be specific about location. Never say "the image shows" or "I can see". Speak as if guiding someone in real time.
+
+CRITICAL: Always direct the person AWAY from hazards. If a hazard is on the left, turn right. If a hazard is on the right, turn left. If ahead, stop or turn to the side with lower risk."""
+
 
 def run_vlm_ollama(frame, zone_context=""):
     """
@@ -109,7 +107,7 @@ def _worker(frame, zone_context="", on_complete=None):
 def trigger_vlm(frame, zone_context="", on_complete=None):
     """
     Start VLM if not already running.
-    zone_context: string summary of YOLO risk zones + detected objects
+    zone_context: string summary of fused risk zones + detected objects
     on_complete: callable that receives the VLM result string (e.g. speak)
     """
     global vlm_running

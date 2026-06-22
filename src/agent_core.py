@@ -12,45 +12,29 @@ class AgentCore:
             "person_detected": False
         }
 
-    def update(self, objects):
-        """
-        objects = dict from IdentityManager:
-        {id: {label, bbox, center}}
-        """
-
+    
+    def update(self, objects, frame_height=320):
         timestamp = time.time()
-
         event_batch = []
+
+        # reset every frame — these must reflect only what's visible right now
+        self.safety_state["person_detected"] = False
+        self.safety_state["obstacle_near"] = False
+
+        near_threshold = frame_height * 0.85  # bottom ~15% of frame counts as "near"
 
         for obj_id, obj in objects.items():
             label = obj["label"]
             x1, y1, x2, y2 = obj["bbox"]
 
-            event = {
-                "time": timestamp,
-                "id": obj_id,
-                "label": label,
-                "bbox": obj["bbox"]
-            }
+            event_batch.append({"time": timestamp, "id": obj_id, "label": label, "bbox": obj["bbox"]})
 
-            event_batch.append(event)
-
-            # Basic safety heuristics (very early stage)
-            if label in ["person"]:
+            if label == "person":
                 self.safety_state["person_detected"] = True
-
-            # crude proximity check (bottom of frame = "near")
-            if y2 > 350:
+            if y2 > near_threshold:
                 self.safety_state["obstacle_near"] = True
 
-        # reset safety each cycle (so it reflects current frame only)
-        if len(objects) == 0:
-            self.safety_state["person_detected"] = False
-            self.safety_state["obstacle_near"] = False
-
-        # store events
         self.event_log.extend(event_batch)
-
         return self.safety_state
 
     def get_recent_events(self, n=10):

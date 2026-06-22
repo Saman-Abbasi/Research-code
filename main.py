@@ -18,11 +18,12 @@ import edge_tts
 
 from src.identity_manager import IdentityManager
 from src.agent_core import AgentCore
-from src.depth_model import DepthEstimator
+from src.tof_sensor import ToFArray
 
 from scripts.trigger_logic import is_uncertain, can_trigger
 import scripts.vlm_agent as vlm_agent
 
+from src.risk_weights import CLASS_WEIGHTS, DEFAULT_WEIGHT, BASE_BOOST
 
 # -------------------- TTS --------------------
 
@@ -56,7 +57,6 @@ def _speak_async(text):
             path = f.name
         communicate = edge_tts.Communicate(text, VOICE)
         await communicate.save(path)
-        # Dynamic duration: edge_tts speaks ~2.5 words/sec, +2s buffer
         word_count    = len(text.split())
         duration_secs = max(4, int(word_count / 2.5) + 2)
         _play_audio(path, duration_secs)
@@ -113,11 +113,12 @@ class SafetyPolicyEngine:
 
 # -------------------- Models --------------------
 
-model       = YOLO("yolov8n.pt")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+model    = YOLO(os.path.join(BASE_DIR, "models", "starvision_best.pt"))
 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if platform.system() == "Windows" else cv2.VideoCapture(0)
 identity    = IdentityManager()
 agent       = AgentCore()
-depth_model = DepthEstimator()
+tof         = ToFArray()
 temporal    = TemporalController()
 policy      = SafetyPolicyEngine()
 
@@ -125,12 +126,10 @@ policy      = SafetyPolicyEngine()
 # -------------------- Performance --------------------
 
 FRAME_SKIP   = 3
-DEPTH_SKIP   = 15
 
-frame_count  = 0
-cached_depth = None
+frame_count    = 0
 cached_objects = {}
-prev_time    = time.time()
+prev_time      = time.time()
 
 print("SPACE = manual VLM assist | Q = quit")
 
@@ -149,7 +148,6 @@ while True:
     key = cv2.waitKey(1) & 0xFF
 
     # -------------------- VLM Pause --------------------
-    # While VLM is running: freeze YOLO, show overlay, no print spam
     if vlm_agent.vlm_running:
         cv2.putText(frame, "VLM ACTIVE - ANALYZING SCENE...", (10, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
@@ -175,53 +173,41 @@ while True:
         cached_objects = identity.update(detections)
 
     objects = cached_objects
-    agent.update(objects)
+    agent.update(objects, frame.shape[0])
 
-    # -------------------- Depth --------------------
-    small_frame = cv2.resize(frame, (160, 120))
-
-    if frame_count % DEPTH_SKIP == 0:
-        cached_depth = depth_model.predict(small_frame)
-
-    depth = cached_depth
-
-    if depth is None:
-        cv2.putText(frame, "INITIALIZING...", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        cv2.imshow("Agent", frame)
-        if key == ord("q"):
-            break
-        continue
-
-    # -------------------- Zone risk --------------------
-    h, w = depth.shape
-
-    # Center zone is 50% of frame width (25%→75%) to reduce false L/R triggers
-    left   = depth[:, :w // 4]
-    center = depth[:, w // 4:3 * w // 4]
-    right  = depth[:, 3 * w // 4:]
-
-    left_risk   = np.mean(left)
-    center_risk = np.mean(center)
-    right_risk  = np.mean(right)
-
-    total = left_risk + center_risk + right_risk + 1e-6
-    left_risk   /= total
-    center_risk /= total
-    right_risk  /= total
+    # -------------------- ToF zone risk --------------------
+    tof_risk    = tof.read()
+    left_risk   = tof_risk["left"]
+    center_risk = tof_risk["center"]
+    right_risk  = tof_risk["right"]
 
     # -------------------- YOLO risk boost --------------------
+    left_bound  = frame.shape[1] * 0.25
+    right_bound = frame.shape[1] * 0.75
+    frame_area  = frame.shape[0] * frame.shape[1] 
+    
     for obj in objects.values():
-        x1, y1, x2, y2  = obj["bbox"]
-        area             = (x2 - x1) * (y2 - y1)
-        frame_area       = frame.shape[0] * frame.shape[1]
-        ratio            = area / frame_area
-        obj_center_x     = (x1 + x2) / 2
+        x1, y1, x2, y2 = obj["bbox"]
+        area         = (x2 - x1) * (y2 - y1)
+        ratio        = area / frame_area
+        obj_center_x = (x1 + x2) / 2
 
-        if ratio > 0.10 and frame.shape[1] * 0.25 < obj_center_x < frame.shape[1] * 0.75:
-            center_risk += 0.25
+        if ratio <= 0.10:
+            continue
 
+        weight = CLASS_WEIGHTS.get(obj["label"], DEFAULT_WEIGHT)
+        boost  = BASE_BOOST * weight
+
+        if obj_center_x < left_bound:
+            left_risk += boost
+        elif obj_center_x > right_bound:
+            right_risk += boost
+        else:
+            center_risk += boost
+
+    left_risk   = min(left_risk, 1.0)
     center_risk = min(center_risk, 1.0)
+    right_risk  = min(right_risk, 1.0)
 
     # -------------------- Policy --------------------
     max_area = max(
@@ -238,8 +224,6 @@ while True:
     print(f"ACTION: {action} | L={left_risk:.2f} C={center_risk:.2f} R={right_risk:.2f}")
 
     # -------------------- Speech --------------------
-    # YOLO directional cues are suppressed while VLM is active
-    # VLM always takes the speaker; YOLO resumes after VLM finishes
     speak(action)
 
     # -------------------- VLM Trigger --------------------
@@ -248,9 +232,8 @@ while True:
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
 
-        # Build zone context string from current YOLO + depth data
         detected_labels = list({obj["label"] for obj in objects.values()})
-        
+
         def risk_level(r):
             if r > 0.6: return "high"
             if r > 0.35: return "moderate"
@@ -294,4 +277,4 @@ while True:
         break
 
 cap.release()
-cv2.destroyAllWindows() 
+cv2.destroyAllWindows()
