@@ -71,7 +71,7 @@ def _speak_async(text):
 def speak(text):
     global last_spoken, last_speech_time
     now = time.time()
-    if text == last_spoken and now - last_speech_time < 5:
+    if text == last_spoken and now - last_speech_time < 1:
         return
     last_spoken = text
     last_speech_time = now
