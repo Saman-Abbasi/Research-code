@@ -13,6 +13,10 @@ import platform
 import asyncio
 from collections import deque
 
+if platform.system() != "Windows":
+    from picamera2 import Picamera2
+    from gpiozero import Button
+
 from ultralytics import YOLO
 import edge_tts
 
@@ -115,12 +119,27 @@ class SafetyPolicyEngine:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 model    = YOLO(os.path.join(BASE_DIR, "models", "starvision_best.pt"))
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if platform.system() == "Windows" else cv2.VideoCapture(0)
+
+if platform.system() == "Windows":
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    picam = None
+else:
+    cap = None
+    picam = Picamera2()
+    config = picam.create_video_configuration(main={"size": (416, 320), "format": "RGB888"})
+    picam.configure(config)
+    picam.start()
+
 identity    = IdentityManager()
 agent       = AgentCore()
 tof         = ToFArray()
 temporal    = TemporalController()
 policy      = SafetyPolicyEngine()
+
+if platform.system() != "Windows":
+    vlm_button = Button(6, pull_up=True)
+else:
+    vlm_button = None
 
 
 # -------------------- Performance --------------------
@@ -138,22 +157,31 @@ print("SPACE = manual VLM assist | Q = quit")
 
 while True:
 
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    frame = cv2.resize(frame, (416, 320))
+    if picam is not None:
+        frame = picam.capture_array()
+    else:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.resize(frame, (416, 320))
+    
     frame_count += 1
 
-    key = cv2.waitKey(1) & 0xFF
+    if platform.system() == "Windows":
+        key = cv2.waitKey(1) & 0xFF
+    else:
+        key = -1
 
     # -------------------- VLM Pause --------------------
     if vlm_agent.vlm_running:
-        cv2.putText(frame, "VLM ACTIVE - ANALYZING SCENE...", (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
-        cv2.imshow("Agent", frame)
-        if key == ord("q"):
-            break
+        if platform.system() == "Windows":
+            cv2.putText(frame, "VLM ACTIVE - ANALYZING SCENE...", (10, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
+            cv2.imshow("Agent", frame)
+            if key == ord("q"):
+                break
+        else:
+            print("VLM ACTIVE - ANALYZING SCENE...")
         continue
 
     # -------------------- YOLO --------------------
@@ -227,7 +255,10 @@ while True:
     speak(action)
 
     # -------------------- VLM Trigger --------------------
-    manual_trigger      = (key == 32)
+    if vlm_button is not None:
+        manual_trigger = vlm_button.is_pressed
+    else:
+        manual_trigger = (key == 32)
     uncertainty_trigger = is_uncertain(frame)
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
@@ -255,26 +286,34 @@ while True:
     prev_time = curr_time
 
     # -------------------- Draw --------------------
-    cv2.putText(frame, f"FPS: {int(fps)}", (10, 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    if platform.system() == "Windows":
+        cv2.putText(frame, f"FPS: {int(fps)}", (10, 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-    for obj_id, obj in objects.items():
-        x1, y1, x2, y2 = obj["bbox"]
-        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-        cv2.putText(frame, f"{obj_id} {obj['label']}", (int(x1), int(y1) - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        for obj_id, obj in objects.items():
+            x1, y1, x2, y2 = obj["bbox"]
+            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+            cv2.putText(frame, f"{obj_id} {obj['label']}", (int(x1), int(y1) - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-    cv2.putText(frame, f"ACTION: {action}", (10, 280),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                (0, 0, 255) if collision else (0, 255, 0), 2)
+        cv2.putText(frame, f"ACTION: {action}", (10, 280),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (0, 0, 255) if collision else (0, 255, 0), 2)
 
-    cv2.putText(frame, f"L:{left_risk:.2f} C:{center_risk:.2f} R:{right_risk:.2f}",
-                (10, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, f"L:{left_risk:.2f} C:{center_risk:.2f} R:{right_risk:.2f}",
+                    (10, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    cv2.imshow("Agent", frame)
+        cv2.imshow("Agent", frame)
 
-    if key == ord("q"):
-        break
+        if key == ord("q"):
+            break
+    else:
+        print(f"Objects: {[(o['label']) for o in objects.values()]}")
 
-cap.release()
-cv2.destroyAllWindows()
+if picam is not None:
+    picam.stop()
+else:
+    cap.release()
+    
+if platform.system() == "Windows":
+    cv2.destroyAllWindows()
