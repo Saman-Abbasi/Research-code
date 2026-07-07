@@ -35,8 +35,13 @@ VOICE = "en-US-AriaNeural"
 last_spoken = None
 last_speech_time = 0
 
+_current_audio_proc = None      # tracks the currently playing audio process
+_vlm_speaking = False           # True while VLM owns the speaker (blocks YOLO)
+_audio_lock = threading.Lock()  # guards access to the audio process
+
 
 def _play_audio(file_path, duration_secs=4):
+    global _current_audio_proc
     abs_path = os.path.abspath(file_path)
     if platform.system() == "Windows":
         ps_script = (
@@ -46,13 +51,25 @@ def _play_audio(file_path, duration_secs=4):
             f"$mp.Play(); "
             f"Start-Sleep -Seconds {duration_secs}"
         )
-        subprocess.run(
-            ['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script],
-            check=True
+        proc = subprocess.Popen(
+            ['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script]
         )
     else:
-        # Raspberry Pi — requires: sudo apt install mpg123
-        subprocess.run(['mpg123', '-q', abs_path], check=True)
+        # Raspberry Pi — non-blocking so we can interrupt it if needed
+        proc = subprocess.Popen(['mpg123', '-q', abs_path])
+
+    with _audio_lock:
+        _current_audio_proc = proc
+    proc.wait()  # block until this clip finishes (or is killed)
+
+
+def _stop_current_audio():
+    """Kill whatever audio is currently playing (used when VLM interrupts YOLO)."""
+    global _current_audio_proc
+    with _audio_lock:
+        if _current_audio_proc is not None and _current_audio_proc.poll() is None:
+            _current_audio_proc.terminate()
+        _current_audio_proc = None
 
 
 def _speak_async(text):
@@ -68,16 +85,44 @@ def _speak_async(text):
     asyncio.run(run())
 
 
-def speak(text):
-    global last_spoken, last_speech_time
+def speak(text, is_vlm=False):
+    """
+    is_vlm=True  -> high priority: interrupts any playing YOLO audio, blocks YOLO until done.
+    is_vlm=False -> low priority (YOLO cue): stays silent while VLM owns the speaker.
+    """
+    global last_spoken, last_speech_time, _vlm_speaking
+
+    # YOLO cues stay silent while the VLM owns the speaker.
+    if not is_vlm and _vlm_speaking:
+        return
+
     now = time.time()
     if text == last_spoken and now - last_speech_time < 1:
         return
     last_spoken = text
     last_speech_time = now
-    threading.Thread(target=_speak_async, args=(text,), daemon=True).start()
 
+    if is_vlm:
+        # VLM takes over: kill any YOLO audio, claim the speaker.
+        _vlm_speaking = True
+        _stop_current_audio()
 
+    def _run():
+        try:
+            _speak_async(text)
+        finally:
+            if is_vlm:
+                # release handled by caller (vlm_agent) after full sequence
+                pass
+
+    threading.Thread(target=_run, args=(), daemon=True).start()
+
+def _release_vlm_audio():
+    """Called by vlm_agent when the full VLM sequence ends — lets YOLO speak again."""
+    global _vlm_speaking
+    _vlm_speaking = False
+    
+    
 # -------------------- Controllers --------------------
 
 class TemporalController:
@@ -278,7 +323,16 @@ while True:
             f"Current navigation decision: {action}."
         )
 
-        vlm_agent.trigger_vlm(frame, zone_context=zone_context, on_complete=speak)
+        trigger_type = "manual" if manual_trigger else "auto"
+
+        vlm_agent.trigger_vlm(
+            frame,
+            zone_context=zone_context,
+            on_complete=lambda t: speak(t, is_vlm=True),
+            trigger_type=trigger_type,
+            announce=lambda t: speak(t, is_vlm=True),
+            release=_release_vlm_audio,
+        )
 
     # -------------------- FPS --------------------
     curr_time = time.time()

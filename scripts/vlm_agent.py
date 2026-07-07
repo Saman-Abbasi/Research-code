@@ -67,28 +67,38 @@ def run_vlm_ollama(frame, zone_context=""):
     return response.json()["response"]
 
 
-def _worker(frame, zone_context="", on_complete=None):
+def _worker(frame, zone_context="", on_complete=None, trigger_type="manual", announce=None, release=None):
     """
     Background inference thread.
-    Calls on_complete(result) to pipe VLM output to speak().
-    Holds vlm_running=True for estimated audio duration so
-    YOLO directional cues stay suppressed until speech finishes.
+      1. Announce (VLM-priority, interrupts YOLO).
+      2. Wait 1s for the user to stop moving.
+      3. Run analysis.
+      4. Speak result.
+      5. Release the VLM audio lock so YOLO resumes.
     """
     global vlm_running
 
     try:
+        # 1. Announcement based on how the VLM was triggered
+        if announce is not None:
+            if trigger_type == "auto":
+                announce("There has been an interruption in your path, hold still whilst I investigate your surrounding.")
+            else:
+                announce("Please hold still whilst I analyze the scene.")
+
+        # 2. Give the user a moment to stop moving
+        time.sleep(1)
+
+        # 3. Analysis
         result = run_vlm_ollama(frame, zone_context)
 
         print("\n========== VLM ==========")
         print(result)
         print("=========================\n")
 
+        # 4. Speak the result (also VLM-priority)
         if on_complete:
             on_complete(result)
-
-            # Approximate wait for audio to finish before releasing the lock.
-            # edge_tts speaks ~2.5 words/sec — keeps YOLO cues silent
-            # until VLM speech is done. Rough but sufficient for prototype.
             word_count   = len(result.split())
             est_duration = max(5, word_count / 2.5)
             time.sleep(est_duration)
@@ -98,6 +108,9 @@ def _worker(frame, zone_context="", on_complete=None):
 
     finally:
         vlm_running = False
+        # 5. Release the VLM audio priority so YOLO can speak again
+        if release is not None:
+            release()
         try:
             from scripts.trigger_logic import mark_trigger_complete
             mark_trigger_complete()
@@ -105,11 +118,12 @@ def _worker(frame, zone_context="", on_complete=None):
             pass
 
 
-def trigger_vlm(frame, zone_context="", on_complete=None):
+def trigger_vlm(frame, zone_context="", on_complete=None, trigger_type="manual", announce=None, release=None):
     """
     Start VLM if not already running.
-    zone_context: string summary of fused risk zones + detected objects
-    on_complete: callable that receives the VLM result string (e.g. speak)
+    trigger_type: "manual" (button) or "auto" (dark/bright/blur) — picks the announcement.
+    announce: callable to speak the announcement at VLM priority.
+    release:  callable to release VLM audio priority when the whole sequence ends.
     """
     global vlm_running
 
@@ -120,6 +134,6 @@ def trigger_vlm(frame, zone_context="", on_complete=None):
 
     threading.Thread(
         target=_worker,
-        args=(frame.copy(), zone_context, on_complete),
+        args=(frame.copy(), zone_context, on_complete, trigger_type, announce, release),
         daemon=True
     ).start()
