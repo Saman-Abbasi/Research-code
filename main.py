@@ -18,7 +18,7 @@ if platform.system() != "Windows":
     from gpiozero import Button
 
 from ultralytics import YOLO
-import edge_tts
+
 
 from src.identity_manager import IdentityManager
 from src.agent_core import AgentCore
@@ -29,15 +29,27 @@ import scripts.vlm_agent as vlm_agent
 
 from src.risk_weights import CLASS_WEIGHTS, DEFAULT_WEIGHT, BASE_BOOST
 
-# -------------------- TTS --------------------
 
-VOICE = "en-US-AriaNeural"
+
+# -------------------- TTS (Piper, offline) --------------------
+
+from piper import PiperVoice
+import wave
+
+PIPER_MODEL  = os.path.join(BASE_DIR, "voices", "en_GB-alba-medium.onnx") \
+    if 'BASE_DIR' in dir() else os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices", "en_GB-alba-medium.onnx")
+PIPER_VOLUME = 0.35              # tuned for MAX98357A to avoid clipping
+AUDIO_DEVICE = "plughw:2,0"      # MAX98357A I2S amp (card 2)
+
+# Load the voice model ONCE at startup, reuse for every phrase.
+_piper_voice = PiperVoice.load(PIPER_MODEL)
+
 last_spoken = None
 last_speech_time = 0
 
-_current_audio_proc = None      # tracks the currently playing audio process
-_vlm_speaking = False           # True while VLM owns the speaker (blocks YOLO)
-_audio_lock = threading.Lock()  # guards access to the audio process
+_current_audio_proc = None
+_vlm_speaking = False
+_audio_lock = threading.Lock()
 
 
 def _play_audio(file_path, duration_secs=4):
@@ -55,16 +67,15 @@ def _play_audio(file_path, duration_secs=4):
             ['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script]
         )
     else:
-        # Raspberry Pi — non-blocking so we can interrupt it if needed
-        proc = subprocess.Popen(['mpg123', '-q', abs_path])
+        # Raspberry Pi — play WAV through the MAX98357A amp, interruptible
+        proc = subprocess.Popen(['aplay', '-D', AUDIO_DEVICE, '-q', abs_path])
 
     with _audio_lock:
         _current_audio_proc = proc
-    proc.wait()  # block until this clip finishes (or is killed)
+    proc.wait()
 
 
 def _stop_current_audio():
-    """Kill whatever audio is currently playing (used when VLM interrupts YOLO)."""
     global _current_audio_proc
     with _audio_lock:
         if _current_audio_proc is not None and _current_audio_proc.poll() is None:
@@ -73,16 +84,13 @@ def _stop_current_audio():
 
 
 def _speak_async(text):
-    async def run():
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-            path = f.name
-        communicate = edge_tts.Communicate(text, VOICE)
-        await communicate.save(path)
-        word_count    = len(text.split())
-        duration_secs = max(4, int(word_count / 2.5) + 2)
-        _play_audio(path, duration_secs)
-        os.remove(path)
-    asyncio.run(run())
+    # Generate speech to a temp WAV with Piper, then play it.
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+        path = f.name
+    with wave.open(path, "wb") as wav_file:
+        _piper_voice.synthesize_wav(text, wav_file, volume=PIPER_VOLUME)
+    _play_audio(path)
+    os.remove(path)
 
 
 def speak(text, is_vlm=False):
