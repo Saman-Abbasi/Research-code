@@ -40,7 +40,7 @@ Describe the scene in 2 or 3 short sentences. Say what objects are there, roughl
 
 def run_vlm_ollama(frame, zone_context=""):
     """
-    Send image to local gemma3:4b model
+    Send image to local model
     """
     img_b64 = encode_image(frame)
     if img_b64 is None:
@@ -51,7 +51,7 @@ def run_vlm_ollama(frame, zone_context=""):
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "moondream",
+            "model": "llava-phi3",
             "prompt": prompt,
             "images": [img_b64],
             "stream": False
