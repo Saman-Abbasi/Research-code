@@ -36,6 +36,8 @@ from src.risk_weights import CLASS_WEIGHTS, DEFAULT_WEIGHT, BASE_BOOST
 from piper import PiperVoice
 import wave
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 PIPER_MODEL  = os.path.join(BASE_DIR, "voices", "en_US-amy-medium.onnx")
 PIPER_VOLUME = 0.25              # tuned for MAX98357A to avoid clipping
 AUDIO_DEVICE = "plughw:2,0"      # MAX98357A I2S amp (card 2)
@@ -184,8 +186,6 @@ class SafetyPolicyEngine:
 
 
 # -------------------- Models --------------------
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 model    = YOLO(os.path.join(BASE_DIR, "models", "starvision_best.pt"))
 
 if platform.system() == "Windows":
