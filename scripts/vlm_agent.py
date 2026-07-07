@@ -49,7 +49,7 @@ CRITICAL: Always direct the person AWAY from hazards. If a hazard is on the left
 
 def run_vlm_ollama(frame, zone_context=""):
     """
-    Send image to local Ollama LLaVA 7B model
+    Send image to local gemma3:4b model
     """
     img_b64 = encode_image(frame)
     if img_b64 is None:
@@ -60,7 +60,7 @@ def run_vlm_ollama(frame, zone_context=""):
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "llava",
+            "model": "gemma3:4b",
             "prompt": prompt,
             "images": [img_b64],
             "stream": False
