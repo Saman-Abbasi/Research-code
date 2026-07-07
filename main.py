@@ -36,9 +36,8 @@ from src.risk_weights import CLASS_WEIGHTS, DEFAULT_WEIGHT, BASE_BOOST
 from piper import PiperVoice
 import wave
 
-PIPER_MODEL  = os.path.join(BASE_DIR, "voices", "en_GB-alba-medium.onnx") \
-    if 'BASE_DIR' in dir() else os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices", "en_GB-alba-medium.onnx")
-PIPER_VOLUME = 0.35              # tuned for MAX98357A to avoid clipping
+PIPER_MODEL  = os.path.join(BASE_DIR, "voices", "en_US-amy-medium.onnx")
+PIPER_VOLUME = 0.25              # tuned for MAX98357A to avoid clipping
 AUDIO_DEVICE = "plughw:2,0"      # MAX98357A I2S amp (card 2)
 
 # Load the voice model ONCE at startup, reuse for every phrase.
