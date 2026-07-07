@@ -60,3 +60,9 @@ def can_trigger():
 
     _last_trigger_time = current
     return True
+
+def mark_trigger_complete():
+    """Reset cooldown clock when VLM finishes, so the 10s gap
+    counts from completion — not from when it started."""
+    global _last_trigger_time
+    _last_trigger_time = time.time()

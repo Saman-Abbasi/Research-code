@@ -34,13 +34,13 @@ def build_prompt(zone_context=""):
     {zone_context}
     """
 
-        return f"""You are guiding a blind person using a camera on their chest. Describe only what is actually visible — never guess or invent objects.
-    {sensor_block}
-    In 2 short spoken sentences, tell them:
-    1. Any objects or hazards you see and where each is — left, center, or right.
-    2. Where it is safe to go — move left, move forward, move right, or stop.
+    return f"""You are guiding a blind person using a camera on their chest. Describe only what is actually visible — never guess or invent objects.
+{sensor_block}
+In 2 short spoken sentences, tell them:
+1. Any objects or hazards you see and where each is — left, center, or right.
+2. Where it is safe to go — move left, move forward, move right, or stop.
 
-    Always guide them away from hazards. Speak plainly and directly, describing the real world around them, not the image."""
+Always guide them away from hazards. Speak plainly and directly, describing the real world around them, not the image."""
 
 
 def run_vlm_ollama(frame, zone_context=""):
@@ -98,6 +98,11 @@ def _worker(frame, zone_context="", on_complete=None):
 
     finally:
         vlm_running = False
+        try:
+            from scripts.trigger_logic import mark_trigger_complete
+            mark_trigger_complete()
+        except Exception:
+            pass
 
 
 def trigger_vlm(frame, zone_context="", on_complete=None):
