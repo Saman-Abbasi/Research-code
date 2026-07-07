@@ -84,11 +84,27 @@ def _stop_current_audio():
 
 
 def _speak_async(text):
-    # Generate speech to a temp WAV with Piper, then play it.
+    import numpy as np
+    # Generate raw audio from Piper, scale volume, write WAV, play it.
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         path = f.name
+
+    # Collect Piper's audio chunks
+    audio_chunks = []
+    for chunk in _piper_voice.synthesize(text):
+        audio_chunks.append(chunk.audio_int16_array)
+    audio = np.concatenate(audio_chunks)
+
+    # Apply volume scaling (0.35) to prevent MAX98357A clipping
+    audio = (audio * PIPER_VOLUME).astype(np.int16)
+
+    # Write WAV with correct headers
     with wave.open(path, "wb") as wav_file:
-        _piper_voice.synthesize_wav(text, wav_file, volume=PIPER_VOLUME)
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(_piper_voice.config.sample_rate)
+        wav_file.writeframes(audio.tobytes())
+
     _play_audio(path)
     os.remove(path)
 
