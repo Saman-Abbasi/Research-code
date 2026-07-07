@@ -30,13 +30,18 @@ def build_prompt(zone_context=""):
     sensor_block = ""
     if zone_context:
         sensor_block = f"""
-Risk & detection context:
-{zone_context}
-"""
+    Risk & detection context:
+    {zone_context}
+    """
 
-    return f"""You are helping a blind person walk safely. Look at what is directly in front of them.
-{sensor_block}
-Describe the scene in 2 or 3 short sentences. Say what objects are there, roughly where they are (left, right, or ahead), and whether it is safe to keep walking or they should stop or turn. Speak directly to the person, in plain spoken language."""
+        return f"""You are guiding a blind person using a camera on their chest. Describe only what is actually visible — never guess or invent objects.
+    {sensor_block}
+    In 2 short spoken sentences, tell them:
+    1. Any objects or hazards you see and where each is — left, center, or right.
+    2. Where it is safe to go — move left, move forward, move right, or stop.
+
+    Always guide them away from hazards. Speak plainly and directly, describing the real world around them, not the image."""
+
 
 def run_vlm_ollama(frame, zone_context=""):
     """
