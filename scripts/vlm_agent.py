@@ -60,7 +60,7 @@ def run_vlm_ollama(frame, zone_context=""):
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "gemma3:4b",
+            "model": "moondream",
             "prompt": prompt,
             "images": [img_b64],
             "stream": False
