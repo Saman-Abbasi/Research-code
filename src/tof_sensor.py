@@ -41,7 +41,7 @@ class ToFArray:
         self.sensors = {}
         for zone, pin in self.xshut.items():
             pin.value = True       # power up only this one sensor
-            time.sleep(0.01)       # let it boot before talking to it over I2C
+            time.sleep(0.5)       # let it boot before talking to it over I2C
             sensor = adafruit_vl53l0x.VL53L0X(i2c)
             sensor.set_address(NEW_ADDRESSES[zone])
             self.sensors[zone] = sensor
