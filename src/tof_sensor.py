@@ -29,22 +29,29 @@ class ToFArray:
         import digitalio
         import adafruit_vl53l0x
 
-        i2c = busio.I2C(board.SCL, board.SDA)
-
+        # 1. Configure XSHUT pins FIRST and hold all sensors off.
         self.xshut = {
             zone: digitalio.DigitalInOut(getattr(board, f"D{pin}"))
             for zone, pin in XSHUT_PINS.items()
         }
         for pin in self.xshut.values():
-            pin.switch_to_output(value=False)  # hold all 3 sensors off initially
+            pin.switch_to_output(value=False)
 
+        # 2. Let all sensors fully power down before touching the bus.
+        time.sleep(0.5)
+
+        # 3. Now bring up the I2C bus with a known-quiet bus.
+        i2c = busio.I2C(board.SCL, board.SDA)
+
+        # 4. Wake each sensor one at a time, give it time to boot, reassign address.
         self.sensors = {}
         for zone, pin in self.xshut.items():
-            pin.value = True       # power up only this one sensor
-            time.sleep(0.5)       # let it boot before talking to it over I2C
+            pin.value = True
+            time.sleep(0.5)                       # let it boot
             sensor = adafruit_vl53l0x.VL53L0X(i2c)
             sensor.set_address(NEW_ADDRESSES[zone])
             self.sensors[zone] = sensor
+            time.sleep(0.1)                       # let the address change settle
 
     def read(self):
         """Returns {'left': risk, 'center': risk, 'right': risk}, each 0.0-1.0."""
