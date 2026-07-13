@@ -15,7 +15,7 @@ from collections import deque
 
 if platform.system() != "Windows":
     from picamera2 import Picamera2
-    from gpiozero import Button
+    from gpiozero import Button, LED
 
 from ultralytics import YOLO
 
@@ -206,13 +206,16 @@ policy      = SafetyPolicyEngine()
 
 if platform.system() != "Windows":
     vlm_button = Button(6, pull_up=True)
+    flashlight = LED(5)          # LED via MOSFET gate on GPIO5
 else:
     vlm_button = None
+    flashlight = None
 
 
 # -------------------- Performance --------------------
 
 FRAME_SKIP   = 3
+LED_BRIGHTNESS_THRESHOLD = 60   # below this, flashlight turns on (TUNE THIS)
 
 frame_count    = 0
 cached_objects = {}
@@ -234,6 +237,17 @@ while True:
         frame = cv2.resize(frame, (416, 320))
     
     frame_count += 1
+    
+    # -------------------- Flashlight (brightness-driven) --------------------
+    gray_full = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    scene_brightness = np.mean(gray_full)
+    print(f"[BRIGHTNESS] {scene_brightness:.1f}")
+
+    if flashlight is not None:
+        if scene_brightness < LED_BRIGHTNESS_THRESHOLD:
+            flashlight.on()
+        else:
+            flashlight.off()
 
     if platform.system() == "Windows":
         key = cv2.waitKey(1) & 0xFF
