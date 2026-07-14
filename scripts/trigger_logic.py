@@ -27,9 +27,9 @@ def is_uncertain(frame):
     mean_brightness = np.mean(gray)
     blur_score      = cv2.Laplacian(gray, cv2.CV_64F).var()
      
-    too_dark   = mean_brightness < 40
+    too_dark   = mean_brightness < 135
     too_bright = mean_brightness > 220
-    too_blurry = blur_score < 10
+    too_blurry = blur_score < 8
 
     currently_uncertain = too_dark or too_bright or too_blurry
 

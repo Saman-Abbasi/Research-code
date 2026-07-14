@@ -72,11 +72,19 @@ def _worker(frame, zone_context="", on_complete=None, trigger_type="manual", ann
     Background inference thread.
       1. Announce (VLM-priority, interrupts YOLO).
       2. Wait 1s for the user to stop moving.
-      3. Run analysis.
+      3. Run analysis, with a 10s "still processing" heartbeat.
       4. Speak result.
       5. Release the VLM audio lock so YOLO resumes.
     """
     global vlm_running
+
+    stop_heartbeat = threading.Event()
+
+    def _heartbeat():
+        """Every 10s while analyzing, remind the user to hold still."""
+        while not stop_heartbeat.wait(10):
+            if announce is not None:
+                announce("Still processing, please hold.")
 
     try:
         # 1. Announcement based on how the VLM was triggered
@@ -89,8 +97,10 @@ def _worker(frame, zone_context="", on_complete=None, trigger_type="manual", ann
         # 2. Give the user a moment to stop moving
         time.sleep(1)
 
-        # 3. Analysis
+        # 3. Start heartbeat, then analyze
+        threading.Thread(target=_heartbeat, daemon=True).start()
         result = run_vlm_ollama(frame, zone_context)
+        stop_heartbeat.set()   # analysis done — stop the reminders
 
         print("\n========== VLM ==========")
         print(result)
@@ -107,6 +117,7 @@ def _worker(frame, zone_context="", on_complete=None, trigger_type="manual", ann
         print(f"\nVLM Error: {e}\n")
 
     finally:
+        stop_heartbeat.set()   # always stop the heartbeat, even on error
         vlm_running = False
         # 5. Release the VLM audio priority so YOLO can speak again
         if release is not None:
@@ -116,8 +127,7 @@ def _worker(frame, zone_context="", on_complete=None, trigger_type="manual", ann
             mark_trigger_complete()
         except Exception:
             pass
-
-
+ 
 def trigger_vlm(frame, zone_context="", on_complete=None, trigger_type="manual", announce=None, release=None):
     """
     Start VLM if not already running.

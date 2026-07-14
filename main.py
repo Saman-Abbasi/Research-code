@@ -353,7 +353,7 @@ while True:
     uncertainty_trigger = is_uncertain(frame)
 
     # If the scene is dark but the LED hasn't had time to help yet, suppress the trigger.
-    if uncertainty_trigger and scene_brightness < 130 and not led_had_its_chance:
+    if uncertainty_trigger and scene_brightness < 135 and not led_had_its_chance:
         uncertainty_trigger = False
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
