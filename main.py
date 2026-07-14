@@ -193,9 +193,14 @@ if platform.system() == "Windows":
 else:
     cap = None
     picam = Picamera2()
-    config = picam.create_video_configuration(main={"size": (416, 320), "format": "RGB888"})
+    config = picam.create_video_configuration(
+        main={"size": (640, 480), "format": "RGB888"},    # VLM stream — sharper
+        lores={"size": (416, 320), "format": "RGB888"},   # nav stream — fast, for YOLO
+    )
     picam.configure(config)
     picam.start()
+    from libcamera import controls
+    picam.set_controls({"AfMode": controls.AfModeEnum.Auto})
     # Camera Module 3 autofocus: Auto mode (1) — we trigger a focus cycle on demand before VLM.
     from libcamera import controls
     picam.set_controls({"AfMode": controls.AfModeEnum.Auto})
@@ -225,7 +230,7 @@ def _autofocus_for_vlm():
 # -------------------- Performance --------------------
 
 FRAME_SKIP   = 3
-LED_BRIGHTNESS_THRESHOLD = 150   # below this, flashlight turns on
+LED_BRIGHTNESS_THRESHOLD = 130   # below this, flashlight turns on
 LED_GRACE_PERIOD = 3.0           # seconds to let the LED illuminate before VLM can fire on darkness
 
 _led_on_since = None             # timestamp when the LED turned on
@@ -242,7 +247,7 @@ print("SPACE = manual VLM assist | Q = quit")
 while True:
 
     if picam is not None:
-        frame = picam.capture_array()
+        frame = picam.capture_array("lores")   # 416x320 for YOLO/ToF/nav
     else:
         ret, frame = cap.read()
         if not ret:
@@ -364,7 +369,7 @@ while True:
     uncertainty_trigger = is_uncertain(frame)
 
     # If the scene is dark but the LED hasn't had time to help yet, suppress the trigger.
-    if uncertainty_trigger and scene_brightness < 135 and not led_had_its_chance:
+    if uncertainty_trigger and scene_brightness < 110 and not led_had_its_chance:
         uncertainty_trigger = False
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
@@ -388,7 +393,7 @@ while True:
 
         # Focus, then grab a fresh sharp frame for the VLM
         _autofocus_for_vlm()
-        vlm_frame = picam.capture_array() if picam is not None else frame
+        vlm_frame = picam.capture_array("main") if picam is not None else frame
         
         vlm_agent.trigger_vlm(
             frame,
