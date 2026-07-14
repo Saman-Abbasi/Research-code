@@ -196,6 +196,9 @@ else:
     config = picam.create_video_configuration(main={"size": (416, 320), "format": "RGB888"})
     picam.configure(config)
     picam.start()
+    # Camera Module 3 autofocus: Auto mode (1) — we trigger a focus cycle on demand before VLM.
+    from libcamera import controls
+    picam.set_controls({"AfMode": controls.AfModeEnum.Auto})
 
 identity    = IdentityManager()
 agent       = AgentCore()
@@ -210,6 +213,14 @@ else:
     vlm_button = None
     flashlight = None
 
+def _autofocus_for_vlm():
+    """Run a single autofocus cycle before the VLM captures. Called during the 'hold still' wait."""
+    if picam is None:
+        return
+    try:
+        picam.autofocus_cycle()
+    except Exception as e:
+        print(f"[AF] autofocus failed: {e}")
 
 # -------------------- Performance --------------------
 
@@ -375,6 +386,10 @@ while True:
 
         trigger_type = "manual" if manual_trigger else "auto"
 
+        # Focus, then grab a fresh sharp frame for the VLM
+        _autofocus_for_vlm()
+        vlm_frame = picam.capture_array() if picam is not None else frame
+        
         vlm_agent.trigger_vlm(
             frame,
             zone_context=zone_context,
