@@ -10,7 +10,6 @@ import tempfile
 import os
 import subprocess
 import platform
-import asyncio
 from collections import deque
 
 if platform.system() != "Windows":
@@ -96,7 +95,7 @@ def _speak_async(text):
         audio_chunks.append(chunk.audio_int16_array)
     audio = np.concatenate(audio_chunks)
 
-    # Apply volume scaling (0.35) to prevent MAX98357A clipping
+    # Apply volume scaling (0.25) to prevent MAX98357A clipping
     audio = (audio * PIPER_VOLUME).astype(np.int16)
 
     # Write WAV with correct headers
@@ -215,7 +214,10 @@ else:
 # -------------------- Performance --------------------
 
 FRAME_SKIP   = 3
-LED_BRIGHTNESS_THRESHOLD = 60   # below this, flashlight turns on (TUNE THIS)
+LED_BRIGHTNESS_THRESHOLD = 150   # below this, flashlight turns on
+LED_GRACE_PERIOD = 3.0           # seconds to let the LED illuminate before VLM can fire on darkness
+
+_led_on_since = None             # timestamp when the LED turned on
 
 frame_count    = 0
 cached_objects = {}
@@ -245,15 +247,22 @@ while True:
 
     if flashlight is not None:
         if scene_brightness < LED_BRIGHTNESS_THRESHOLD:
-            flashlight.on()
+            if _led_on_since is None:
+                flashlight.on()
+                _led_on_since = time.time()
         else:
             flashlight.off()
+            _led_on_since = None
+
+    # Has the LED had enough time to actually illuminate the scene?
+    led_had_its_chance = (
+        _led_on_since is not None and (time.time() - _led_on_since) >= LED_GRACE_PERIOD
+    )
 
     if platform.system() == "Windows":
         key = cv2.waitKey(1) & 0xFF
     else:
         key = -1
-
     # -------------------- VLM Pause --------------------
     if vlm_agent.vlm_running:
         if platform.system() == "Windows":
@@ -342,6 +351,10 @@ while True:
     else:
         manual_trigger = (key == 32)
     uncertainty_trigger = is_uncertain(frame)
+
+    # If the scene is dark but the LED hasn't had time to help yet, suppress the trigger.
+    if uncertainty_trigger and scene_brightness < 130 and not led_had_its_chance:
+        uncertainty_trigger = False
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
 
