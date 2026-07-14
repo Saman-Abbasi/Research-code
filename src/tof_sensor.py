@@ -38,7 +38,7 @@ class ToFArray:
             pin.switch_to_output(value=False)
 
         # 2. Let all sensors fully power down before touching the bus.
-        time.sleep(0.5)
+        time.sleep(1.5)
 
         # 3. Now bring up the I2C bus with a known-quiet bus.
         i2c = busio.I2C(board.SCL, board.SDA)
