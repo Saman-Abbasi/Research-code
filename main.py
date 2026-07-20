@@ -14,7 +14,9 @@ from collections import deque
 
 if platform.system() != "Windows":
     from picamera2 import Picamera2
-    from gpiozero import Button, LED
+    from gpiozero import Button
+    import board
+    import neopixel
 
 from ultralytics import YOLO
 
@@ -213,7 +215,9 @@ policy      = SafetyPolicyEngine()
 
 if platform.system() != "Windows":
     vlm_button = Button(6, pull_up=True)
-    flashlight = LED(5)          # LED via MOSFET gate on GPIO5
+    flashlight = neopixel.NeoPixel(
+        board.D10, 32, brightness=0.3, auto_write=False, pixel_order=neopixel.GRB
+    )
 else:
     vlm_button = None
     flashlight = None
@@ -264,10 +268,12 @@ while True:
     if flashlight is not None:
         if scene_brightness < LED_BRIGHTNESS_THRESHOLD:
             if _led_on_since is None:
-                flashlight.on()
+                flashlight.fill((255, 255, 255))
+                flashlight.show()
                 _led_on_since = time.time()
         else:
-            flashlight.off()
+            flashlight.fill((0, 0, 0))
+            flashlight.show()
             _led_on_since = None
 
     # Has the LED had enough time to actually illuminate the scene?
