@@ -222,6 +222,20 @@ else:
     vlm_button = None
     flashlight = None
 
+import atexit
+
+def _turn_off_leds():
+    """Ensure the LED rings are off when the program exits, however it exits."""
+    if flashlight is not None:
+        try:
+            flashlight.fill((0, 0, 0))
+            flashlight.show()
+            print("[CLEANUP] LED rings turned off.")
+        except Exception as e:
+            print(f"[CLEANUP] Failed to turn off LEDs: {e}")
+
+atexit.register(_turn_off_leds)
+
 def _autofocus_for_vlm():
     """Run a single autofocus cycle before the VLM captures. Called during the 'hold still' wait."""
     if picam is None:
