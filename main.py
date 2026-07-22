@@ -248,7 +248,7 @@ def _autofocus_for_vlm():
 # -------------------- Performance --------------------
 
 FRAME_SKIP   = 3
-LED_BRIGHTNESS_THRESHOLD = 130   # below this, flashlight turns on
+LED_BRIGHTNESS_THRESHOLD = 95   # below this, flashlight turns on
 LED_GRACE_PERIOD = 3.0           # seconds to let the LED illuminate before VLM can fire on darkness
 
 _led_on_since = None             # timestamp when the LED turned on
@@ -389,7 +389,7 @@ while True:
     uncertainty_trigger = is_uncertain(frame)
 
     # If the scene is dark but the LED hasn't had time to help yet, suppress the trigger.
-    if uncertainty_trigger and scene_brightness < 110 and not led_had_its_chance:
+    if uncertainty_trigger and scene_brightness < 80 and not led_had_its_chance:
         uncertainty_trigger = False
 
     if (manual_trigger or uncertainty_trigger) and can_trigger():
