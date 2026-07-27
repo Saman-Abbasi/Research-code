@@ -216,7 +216,7 @@ policy      = SafetyPolicyEngine()
 if platform.system() != "Windows":
     vlm_button = Button(6, pull_up=True)
     flashlight = neopixel.NeoPixel(
-        board.D10, 32, brightness=0.3, auto_write=False, pixel_order=neopixel.GRB
+        board.D10, 32, brightness=0.15, auto_write=False, pixel_order=neopixel.GRB
     )
 else:
     vlm_button = None
