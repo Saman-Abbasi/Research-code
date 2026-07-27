@@ -266,6 +266,8 @@ while True:
 
     if picam is not None:
         frame = picam.capture_array("lores")   # 416x320 for YOLO/ToF/nav
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        
     else:
         ret, frame = cap.read()
         if not ret:
@@ -413,7 +415,10 @@ while True:
 
         # Focus, then grab a fresh sharp frame for the VLM
         _autofocus_for_vlm()
-        vlm_frame = picam.capture_array("main") if picam is not None else frame
+        if picam is not None:
+            vlm_frame = cv2.rotate(picam.capture_array("main"), cv2.ROTATE_90_CLOCKWISE)
+        else:
+            vlm_frame = frame
         
         vlm_agent.trigger_vlm(
             frame,
