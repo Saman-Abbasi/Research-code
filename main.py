@@ -248,7 +248,7 @@ def _autofocus_for_vlm():
 # -------------------- Performance --------------------
 
 FRAME_SKIP   = 3
-LED_BRIGHTNESS_THRESHOLD = 95   # below this, flashlight turns on
+LED_BRIGHTNESS_THRESHOLD = 105   # below this, flashlight turns on
 LED_GRACE_PERIOD = 3.0           # seconds to let the LED illuminate before VLM can fire on darkness
 
 _led_on_since = None             # timestamp when the LED turned on
